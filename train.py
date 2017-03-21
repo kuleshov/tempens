@@ -92,6 +92,8 @@ import theano_utils
 import pickle
 sys.setrecursionlimit(10000)
 
+dim = 28 if config.dataset == 'mnist' else 32
+
 ###################################################################################################
 # Image save function that deals correctly with channels.
 ###################################################################################################
@@ -290,8 +292,8 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
         num_img = min(num_classes, 20)
         max_count = config.num_labels // num_classes
         print("Keeping %d labels per class." % max_count)
-        img_count = min(max_count, 28)
-        label_image = np.zeros((X_train.shape[1], 28 * num_img, 28 * img_count))
+        img_count = min(max_count, dim)
+        label_image = np.zeros((X_train.shape[1], dim * num_img, dim * img_count))
         mask_train = np.zeros(len(y_train), dtype=np.float32)
         count = [0] * num_classes
         for i in range(len(y_train)):
@@ -299,7 +301,7 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
             if count[label] < max_count:
                 mask_train[i] = 1.0
                 if count[label] < img_count and label < num_img:
-                    label_image[:, label * 28 : (label + 1) * 28, count[label] * 28 : (count[label] + 1) * 28] = X_train[i, :, p:p+28, p:p+28]
+                    label_image[:, label * dim : (label + 1) * dim, count[label] * dim : (count[label] + 1) * dim] = X_train[i, :, p:p+dim, p:p+dim]
             count[label] += 1
 
         # Dump out some of the labeled digits.
@@ -420,7 +422,7 @@ def build_network(input_var, num_input_channels, num_classes):
         'momentum': config.batch_normalization_momentum
     }
 
-    net = InputLayer        (     name='input',    shape=(None, num_input_channels, 28, 28), input_var=input_var)
+    net = InputLayer        (     name='input',    shape=(None, num_input_channels, dim, dim), input_var=input_var)
     net = GaussianNoiseLayer(net, name='noise',    sigma=config.augment_noise_stddev)
     net = WN(Conv2DLayer    (net, name='conv1a',   num_filters=128, pad='same', **conv_defs), **wn_defs)
     net = WN(Conv2DLayer    (net, name='conv1b',   num_filters=128, pad='same', **conv_defs), **wn_defs)
@@ -492,7 +494,7 @@ def iterate_minibatches(inputs, targets, batch_size):
     for start_idx in range(0, num, batch_size):
         if start_idx + batch_size <= num:
             excerpt = indices[start_idx : start_idx + batch_size]
-            yield len(excerpt), inputs[excerpt, :, crop:crop+28, crop:crop+28], targets[excerpt]
+            yield len(excerpt), inputs[excerpt, :, crop:crop+dim, crop:crop+dim], targets[excerpt]
 
 def iterate_minibatches_augment_pi(inputs, labels, mask, batch_size):
     assert len(inputs) == len(labels) == len(mask)
@@ -521,10 +523,10 @@ def iterate_minibatches_augment_pi(inputs, labels, mask, batch_size):
                 t = config.augment_translation
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img_a = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
+                img_a = img[:, ofs0:ofs0+dim, ofs1:ofs1+dim]
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img_b = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
+                img_b = img[:, ofs0:ofs0+dim, ofs1:ofs1+dim]
                 noisy_a.append(img_a)
                 noisy_b.append(img_b)
             yield len(excerpt), excerpt, noisy_a, noisy_b, labels[excerpt], mask[excerpt]
@@ -556,7 +558,7 @@ def iterate_minibatches_augment_tempens(inputs, labels, mask, targets, batch_siz
                 t = config.augment_translation
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
+                img = img[:, ofs0:ofs0+dim, ofs1:ofs1+dim]
                 noisy.append(img)
             yield len(excerpt), excerpt, noisy, labels[excerpt], mask[excerpt], targets[excerpt]
 
