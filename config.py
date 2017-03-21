@@ -60,13 +60,13 @@ from collections import OrderedDict
 
 run_desc                            = 'baseline'                # Name the results directory to be created for current run.
 network_type                        = 'pi'                      # Valid values: 'pi', 'tempens'.
-dataset                             = 'svhn'                    # Valid values: 'cifar-10', 'svhn'.
+dataset                             = 'mnist'                    # Valid values: 'cifar-10', 'svhn'.
 aux_tinyimg                         = None                      # Valid values: None, 'c100', # for any.
 whiten_inputs                       = 'norm'                    # Valid values: None, 'norm', 'zca'.
 augment_noise_stddev                = 0.15                      # Controls the Gaussian noise added inside network during training.
 augment_mirror                      = False                     # Enable horizontal flip augmentation.
 augment_translation                 = 2                         # Maximum translation distance for augmentation. Must be an integer.
-num_labels                          = 500                       # Total number of labeled inputs (1/10th of this per class). Value 'all' uses all labels.
+num_labels                          = 100                       # Total number of labeled inputs (1/10th of this per class). Value 'all' uses all labels.
 corruption_percentage               = 0                         # How big percentage of input labels to corrupt.
 num_epochs                          = 300                       # Number of epochs to train.
 max_unlabeled_per_epoch             = None                      # Set this to use at most n unlabeled inputs per epoch.

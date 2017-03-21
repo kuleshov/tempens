@@ -161,6 +161,62 @@ def load_svhn():
 
     return X_train, y_train, X_test, y_test
 
+def load_mnist():
+  # We first define a download function, supporting both Python 2 and 3.
+  if sys.version_info[0] == 2:
+    from urllib import urlretrieve
+  else:
+    from urllib.request import urlretrieve
+
+  def download(filename, source='http://yann.lecun.com/exdb/mnist/'):
+    print "Downloading %s" % filename
+    urlretrieve(source + filename, filename)
+
+  # We then define functions for loading MNIST images and labels.
+  # For convenience, they also download the requested files if needed.
+  import gzip
+
+  def load_mnist_images(filename):
+    if not os.path.exists(filename):
+      download(filename)
+      # Read the inputs in Yann LeCun's binary format.
+    with gzip.open(filename, 'rb') as f:
+      data = np.frombuffer(f.read(), np.uint8, offset=16)
+    # The inputs are vectors now, we reshape them to monochrome 2D images,
+    # following the shape convention: (examples, channels, rows, columns)
+    data = data.reshape(-1, 1, 28, 28)
+    # The inputs come as bytes, we convert them to float32 in range [0,1].
+    # (Actually to range [0, 255/256], for compatibility to the version
+    # provided at http://deeplearning.net/data/mnist/mnist.pkl.gz.)
+    return data / np.float32(256)
+
+  def load_mnist_labels(filename):
+    if not os.path.exists(filename):
+      download(filename)
+      # Read the labels in Yann LeCun's binary format.
+    with gzip.open(filename, 'rb') as f:
+      data = np.frombuffer(f.read(), np.uint8, offset=8)
+    # The labels are vectors of integers now, that's exactly what we want.
+    return data
+
+  # We can now download and read the training and test set images and labels.
+  X_train = load_mnist_images('train-images-idx3-ubyte.gz')
+  y_train = load_mnist_labels('train-labels-idx1-ubyte.gz')
+  X_test = load_mnist_images('t10k-images-idx3-ubyte.gz')
+  y_test = load_mnist_labels('t10k-labels-idx1-ubyte.gz')
+
+  # We reserve the last 10000 training examples for validation.
+  X_train, X_val = X_train[:-10000], X_train[-10000:]
+  y_train, y_val = y_train[:-10000], y_train[-10000:]
+
+  y_train = np.array(y_train, dtype='int32')
+  y_val = np.array(y_val, dtype='int32')
+  y_test = np.array(y_test, dtype='int32')
+
+  # We just return all the arrays in order, as expected in main().
+  # (It doesn't matter how we do this as long as we can read them again.)
+  return X_train, y_train, X_test, y_test
+
 def load_tinyimages(indices, output_array=None, output_start_index=0):
     images = output_array
     if images is None:
@@ -234,8 +290,8 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
         num_img = min(num_classes, 20)
         max_count = config.num_labels // num_classes
         print("Keeping %d labels per class." % max_count)
-        img_count = min(max_count, 32)
-        label_image = np.zeros((X_train.shape[1], 32 * num_img, 32 * img_count))
+        img_count = min(max_count, 28)
+        label_image = np.zeros((X_train.shape[1], 28 * num_img, 28 * img_count))
         mask_train = np.zeros(len(y_train), dtype=np.float32)
         count = [0] * num_classes
         for i in range(len(y_train)):
@@ -243,7 +299,7 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
             if count[label] < max_count:
                 mask_train[i] = 1.0
                 if count[label] < img_count and label < num_img:
-                    label_image[:, label * 32 : (label + 1) * 32, count[label] * 32 : (count[label] + 1) * 32] = X_train[i, :, p:p+32, p:p+32]
+                    label_image[:, label * 28 : (label + 1) * 28, count[label] * 28 : (count[label] + 1) * 28] = X_train[i, :, p:p+28, p:p+28]
             count[label] += 1
 
         # Dump out some of the labeled digits.
@@ -364,7 +420,7 @@ def build_network(input_var, num_input_channels, num_classes):
         'momentum': config.batch_normalization_momentum
     }
 
-    net = InputLayer        (     name='input',    shape=(None, num_input_channels, 32, 32), input_var=input_var)
+    net = InputLayer        (     name='input',    shape=(None, num_input_channels, 28, 28), input_var=input_var)
     net = GaussianNoiseLayer(net, name='noise',    sigma=config.augment_noise_stddev)
     net = WN(Conv2DLayer    (net, name='conv1a',   num_filters=128, pad='same', **conv_defs), **wn_defs)
     net = WN(Conv2DLayer    (net, name='conv1b',   num_filters=128, pad='same', **conv_defs), **wn_defs)
@@ -436,7 +492,7 @@ def iterate_minibatches(inputs, targets, batch_size):
     for start_idx in range(0, num, batch_size):
         if start_idx + batch_size <= num:
             excerpt = indices[start_idx : start_idx + batch_size]
-            yield len(excerpt), inputs[excerpt, :, crop:crop+32, crop:crop+32], targets[excerpt]
+            yield len(excerpt), inputs[excerpt, :, crop:crop+28, crop:crop+28], targets[excerpt]
 
 def iterate_minibatches_augment_pi(inputs, labels, mask, batch_size):
     assert len(inputs) == len(labels) == len(mask)
@@ -465,10 +521,10 @@ def iterate_minibatches_augment_pi(inputs, labels, mask, batch_size):
                 t = config.augment_translation
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img_a = img[:, ofs0:ofs0+32, ofs1:ofs1+32]
+                img_a = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img_b = img[:, ofs0:ofs0+32, ofs1:ofs1+32]
+                img_b = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
                 noisy_a.append(img_a)
                 noisy_b.append(img_b)
             yield len(excerpt), excerpt, noisy_a, noisy_b, labels[excerpt], mask[excerpt]
@@ -500,7 +556,7 @@ def iterate_minibatches_augment_tempens(inputs, labels, mask, targets, batch_siz
                 t = config.augment_translation
                 ofs0 = np.random.randint(-t, t + 1) + crop
                 ofs1 = np.random.randint(-t, t + 1) + crop
-                img = img[:, ofs0:ofs0+32, ofs1:ofs1+32]
+                img = img[:, ofs0:ofs0+28, ofs1:ofs1+28]
                 noisy.append(img)
             yield len(excerpt), excerpt, noisy, labels[excerpt], mask[excerpt], targets[excerpt]
 
@@ -550,6 +606,8 @@ def run_training(monitor_filename=None):
         X_train, y_train, X_test, y_test = load_cifar_100()
     elif config.dataset == 'svhn':
         X_train, y_train, X_test, y_test = load_svhn()
+    elif config.dataset == 'mnist':
+        X_train, y_train, X_test, y_test = load_mnist()    
     else:
         print("Unknown dataset '%s'." % config.dataset)
         exit()
