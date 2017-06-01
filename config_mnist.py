@@ -81,7 +81,8 @@ adam_beta2                          = 0.999                     # Default value.
 adam_epsilon                        = 1e-8                      # Default value.
 prediction_decay                    = 0.6                       # Ensemble prediction decay constant (\alpha in paper).
 unsup_weight_max                    = 100.0                     # Unsupervised loss maximum (w_max in paper). Set to 0.0 -> supervised loss only.
-load_network_filename               = 'r:/016-baseline_mnist100_1000/network-final.pkl'                      # Set to load a previously saved network.
+load_network_filename               = None
+# load_network_filename               = 'r:/016-baseline_mnist100_1000/network-final.pkl'                      # Set to load a previously saved network.
 start_epoch                         = 0                         # Which epoch to start training from. For continuing a previously trained network.
 cuda_device_number                  = 0                         # Which GPU to use.
 random_seed                         = 1000                      # Randomization seed.
@@ -198,10 +199,10 @@ random_seed                         = 1000                      # Randomization 
 # Disable mirror and translation augmentation.
 #----------------------------------------------------------------------------
 
-#if True:
-#    augment_mirror = False
-#    augment_translation = 0
-#    run_desc = run_desc + '_noaug'
+if True:
+   augment_mirror = False
+   augment_translation = 0
+   run_desc = run_desc + '_noaug'
 
 #----------------------------------------------------------------------------
 # Automatically append dataset, label count, and random seed to run_desc.

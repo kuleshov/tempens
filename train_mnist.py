@@ -79,7 +79,7 @@ warnings.filterwarnings('ignore', message = "downsample module has been moved to
     
 import report, thread_utils, time
 import numpy as np
-np.random.seed(config.random_seed)
+#np.random.seed(config.random_seed)
     
 print "CUDA_VISIBLE_DEVICES=" + os.environ['CUDA_VISIBLE_DEVICES']
 print "THEANO_FLAGS=" + os.environ['THEANO_FLAGS']
@@ -240,16 +240,16 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
 
     # Whiten input data.
 
-    if config.whiten_inputs == 'norm':
-        X_train = whiten_norm(X_train)
-        X_test = whiten_norm(X_test)
-    elif config.whiten_inputs == 'zca':
-        whitener = ZCA(x=X_train)
-        X_train = whitener.apply(X_train)
-        X_test = whitener.apply(X_test)
-    elif config.whiten_inputs is not None:
-        print("Unknown input whitening mode '%s'." % config.whiten_inputs)
-        exit()
+    # if config.whiten_inputs == 'norm':
+    #     X_train = whiten_norm(X_train)
+    #     X_test = whiten_norm(X_test)
+    # elif config.whiten_inputs == 'zca':
+    #     whitener = ZCA(x=X_train)
+    #     X_train = whitener.apply(X_train)
+    #     X_test = whitener.apply(X_test)
+    # elif config.whiten_inputs is not None:
+    #     print("Unknown input whitening mode '%s'." % config.whiten_inputs)
+    #     exit()
 
     # Pad according to the amount of jitter we plan to have.
 
@@ -307,50 +307,6 @@ def prepare_dataset(result_subdir, X_train, y_train, X_test, y_test, num_classes
 
         # Dump out some of the labeled digits.
         save_image(os.path.join(result_subdir, 'labeled_inputs.png'), label_image)
-
-    # Draw in auxiliary data from the tiny images dataset.
-
-    if config.aux_tinyimg is not None:
-        print("Augmenting with unlabeled data from tiny images dataset.")
-        with open(os.path.join(config.data_dir, 'tinyimages', 'tiny_index.pkl'), 'rb') as f:
-            tinyimg_index = pickle.load(f)
-
-        if config.aux_tinyimg == 'c100':
-            print("Using all classes common with CIFAR-100.")
-
-            with open(os.path.join(config.data_dir, 'cifar-100', 'meta'), 'rb') as f:
-                cifar_labels = pickle.load(f)['fine_label_names']
-            cifar_to_tinyimg = { 'maple_tree': 'maple', 'aquarium_fish' : 'fish' }
-            cifar_labels = [l if l not in cifar_to_tinyimg else cifar_to_tinyimg[l] for l in cifar_labels]
-
-            load_indices = sum([list(range(*tinyimg_index[label])) for label in cifar_labels], [])
-        else:
-            print("Using %d random images." % config.aux_tinyimg)
-
-            num_all_images = max(e for s, e in tinyimg_index.values())
-            load_indices = np.arange(num_all_images)
-            np.random.shuffle(load_indices)
-            load_indices = load_indices[:config.aux_tinyimg]
-            load_indices.sort() # Some coherence in seeks.
-
-        # Load the images.
-
-        num_aux_images = len(load_indices)
-        print("Loading %d auxiliary unlabeled images." % num_aux_images)
-        Z_train = load_tinyimages(load_indices)
-
-        # Whiten and pad.
-
-        if config.whiten_inputs == 'norm':
-            Z_train = whiten_norm(Z_train)
-        elif config.whiten_inputs == 'zca':
-            Z_train = whitener.apply(Z_train)
-        Z_train = np.pad(Z_train, ((0, 0), (0, 0), (p, p), (p, p)), 'reflect')
-
-        # Concatenate to training data and append zeros to labels and mask.
-        X_train = np.concatenate((X_train, Z_train))
-        y_train = np.concatenate((y_train, np.zeros(num_aux_images, dtype='int32')))
-        mask_train = np.concatenate((mask_train, np.zeros(num_aux_images, dtype='float32')))
 
     # Zero out masked-out labels for maximum paranoia.
     for i in range(len(y_train)):
