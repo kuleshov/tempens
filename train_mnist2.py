@@ -608,7 +608,7 @@ def run_training(monitor_filename=None):
     if config.network_type == 'pi':
         train_loss = disc_mult*T.mean(lasagne.objectives.categorical_crossentropy(train_prediction, label_var) * mask_var, dtype=theano.config.floatX, acc_dtype=theano.config.floatX)
         train_loss += disc_mult*unsup_weight_var * T.mean(lasagne.objectives.squared_error(train_prediction, train_prediction_b), dtype=theano.config.floatX, acc_dtype=theano.config.floatX)
-        # train_loss += create_gen_objective(input_var, network)
+        train_loss += create_gen_objective(input_var, network)
     elif config.network_type == 'tempens':
         train_loss = T.mean(lasagne.objectives.categorical_crossentropy(train_prediction, label_var) * mask_var, dtype=theano.config.floatX, acc_dtype=theano.config.floatX)
         train_loss += unsup_weight_var * T.mean(lasagne.objectives.squared_error(train_prediction, target_var), dtype=theano.config.floatX, acc_dtype=theano.config.floatX)

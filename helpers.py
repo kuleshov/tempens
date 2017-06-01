@@ -250,7 +250,7 @@ def create_model(X, n_dim, n_out, n_chan=1, model='bernoulli'):
     # l_hid_drop = l_hid
 
     l_d = lasagne.layers.DenseLayer(
-            l_hid_drop, num_units=n_out,
+            l_hid_drop, num_units=10,
             nonlinearity=lasagne.nonlinearities.softmax)
 
     return l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
@@ -367,46 +367,6 @@ def create_model2(X, n_dim, n_out, n_chan=1, model='gaussian'):
         b=lasagne.init.Constant(0.0),
         nonlinearity=relu_shift)
 
-    # # discriminative model
-    # l_in_drop = lasagne.layers.DropoutLayer(l_qa_in, p=0.2)
-    # # l_in_drop = l_in
-
-    # l_conv1 = lasagne.layers.Conv2DLayer(
-    #     l_in_drop, num_filters=64, filter_size=(5, 5),
-    #     nonlinearity=lasagne.nonlinearities.rectify,
-    #     pad='same', W=lasagne.init.Orthogonal())
-    # l_conv1 = lasagne.layers.MaxPool2DLayer(
-    #     l_conv1, pool_size=(3, 3), stride=(2,2))
-
-    # l_conv2 = lasagne.layers.Conv2DLayer(
-    #     l_conv1, num_filters=64, filter_size=(5, 5),
-    #     nonlinearity=lasagne.nonlinearities.rectify,
-    #     pad='same', W=lasagne.init.Orthogonal())
-    # l_conv2 = lasagne.layers.MaxPool2DLayer(
-    #     l_conv2, pool_size=(3, 3), stride=(2,2))
-
-    # l_conv3 = lasagne.layers.Conv2DLayer(
-    #     l_conv2, num_filters=128, filter_size=(5, 5),
-    #     nonlinearity=lasagne.nonlinearities.rectify,
-    #     pad='same', W=lasagne.init.Orthogonal())
-    # l_conv3 = lasagne.layers.MaxPool2DLayer(
-    #     l_conv3, pool_size=(3, 3), stride=(2,2))
-    # l_conv3 = lasagne.layers.FlattenLayer(l_conv3)
-
-    # l_merge = lasagne.layers.ConcatLayer([l_conv3, l_qz_mu])
-
-    # l_hid = lasagne.layers.DenseLayer(
-    #     l_merge, num_units=500,
-    #     W=lasagne.init.Orthogonal(),
-    #     b=lasagne.init.Constant(0.0),
-    #     nonlinearity=lasagne.nonlinearities.rectify)
-    # l_hid_drop = lasagne.layers.DropoutLayer(l_hid, p=0.5)
-    # # l_hid_drop = l_hid
-
-    # l_d = lasagne.layers.DenseLayer(
-    #         l_hid_drop, num_units=n_out,
-    #         nonlinearity=lasagne.nonlinearities.softmax)
-
     net = lasagne.layers.GaussianNoiseLayer(l_qa_in, name='noise',    sigma=0.15)
     net = WN(lasagne.layers.Conv2DLayer    (net, name='conv1a',   num_filters=128, pad='same', **conv_defs), **wn_defs)
     net = WN(lasagne.layers.Conv2DLayer    (net, name='conv1b',   num_filters=128, pad='same', **conv_defs), **wn_defs)
@@ -431,7 +391,118 @@ def create_model2(X, n_dim, n_out, n_chan=1, model='gaussian'):
            l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
            l_qa, l_qz, l_d
 
+def create_gen_objective(X, network, deterministic=False, model='bernoulli'):
+    # load network input
+    x = X.flatten(2)
+
+    # duplicate entries to take into account multiple mc samples
+    n_sam = 1
+    n_out = x.shape[1]
+    x = x.dimshuffle(0,'x',1).repeat(n_sam, axis=1).reshape((-1, n_out))
+
+    # load network
+    l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
+      l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
+      l_qa, l_qz, l_d = network
+    
+    # load network output
+    pa_mu, pa_logsigma, qz_mu, qz_logsigma, qa_mu, qa_logsigma, a, z \
+      = lasagne.layers.get_output(
+          [ l_pa_mu, l_pa_logsigma, l_qz_mu, l_qz_logsigma, 
+            l_qa_mu, l_qa_logsigma, l_qa, l_qz ], 
+          deterministic=deterministic)
+
+    if model == 'bernoulli':
+      px_mu = lasagne.layers.get_output(l_px_mu, deterministic=deterministic)
+    elif model == 'gaussian':
+      px_mu, px_logsigma = lasagne.layers.get_output([l_px_mu, l_px_logsigma], 
+                                                     deterministic=deterministic)
+
+    # entropy term
+    log_qa_given_x  = log_normal2(a, qa_mu, qa_logsigma).sum(axis=1)
+    log_qz_given_ax = log_normal2(z, qz_mu, qz_logsigma).sum(axis=1)
+    log_qza_given_x = log_qz_given_ax + log_qa_given_x
+
+    # log-probability term
+    z_prior_sigma = T.cast(T.ones_like(qz_logsigma), dtype=theano.config.floatX)
+    z_prior_mu = T.cast(T.zeros_like(qz_mu), dtype=theano.config.floatX)
+    log_pz = log_normal(z, z_prior_mu,  z_prior_sigma).sum(axis=1)
+    log_pa_given_z = log_normal2(a, pa_mu, pa_logsigma).sum(axis=1)
+
+    if model == 'bernoulli':
+      log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
+    elif model == 'gaussian':
+      log_px_given_z = log_normal2(x, px_mu, px_logsigma).sum(axis=1)
+
+    log_paxz = log_pa_given_z + log_px_given_z + log_pz
+
+    # discriminative component
+    # P = lasagne.layers.get_output(l_d)
+    # P_test = lasagne.layers.get_output(l_d, deterministic=True)
+    # disc_loss = lasagne.objectives.categorical_crossentropy(P, Y)
+
+    # compute the evidence lower bound
+    # elbo = T.mean(-disc_loss + log_paxz - log_qza_given_x)
+    elbo = T.mean(log_paxz - log_qza_given_x)
+    # elbo = T.mean(-disc_loss)
+
+    return -elbo
+
+def get_params(network):
+    l_px_mu = network[0]
+    l_pa_mu = network[2]
+    l_d = network[-1]
+    params  = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_d], trainable=True)
+    params  = lasagne.layers.get_all_params(network, trainable=True)
+    # params1 = lasagne.layers.get_all_params(l_d, trainable=True)
+    
+    return params
+
+# ----------------------------------------------------------------------------
+# helper layers
+
+class Deconv2DLayer(lasagne.layers.Layer):
+
+    def __init__(self, incoming, num_filters, filter_size, stride=1, pad=0,
+            nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
+        super(Deconv2DLayer, self).__init__(incoming, **kwargs)
+        self.num_filters = num_filters
+        self.filter_size = lasagne.utils.as_tuple(filter_size, 2, int)
+        self.stride = lasagne.utils.as_tuple(stride, 2, int)
+        self.pad = lasagne.utils.as_tuple(pad, 2, int)
+        self.W = self.add_param(lasagne.init.Orthogonal(),
+                (self.input_shape[1], num_filters) + self.filter_size,
+                name='W')
+        self.b = self.add_param(lasagne.init.Constant(0),
+                (num_filters,),
+                name='b')
+        if nonlinearity is None:
+            nonlinearity = lasagne.nonlinearities.identity
+        self.nonlinearity = nonlinearity
+
+    def get_output_shape_for(self, input_shape):
+        shape = tuple(i*s - 2*p + f - 1
+                for i, s, p, f in zip(input_shape[2:],
+                                      self.stride,
+                                      self.pad,
+                                      self.filter_size))
+        return (input_shape[0], self.num_filters) + shape
+
+    def get_output_for(self, input, **kwargs):
+        op = T.nnet.abstract_conv.AbstractConv2d_gradInputs(
+            imshp=self.output_shape,
+            kshp=(self.input_shape[1], self.num_filters) + self.filter_size,
+            subsample=self.stride, border_mode=self.pad)
+        conved = op(self.W, input, self.output_shape[2:])
+        if self.b is not None:
+            conved += self.b.dimshuffle('x', 0, 'x', 'x')
+        return self.nonlinearity(conved)        
+
+# ----------------------------------------------------------------------------
+# probably not useful
+
 def create_model3(X, n_dim, n_out, n_chan=1, model='gaussian'):
+    """Large disc with VAE gen"""
     # params
     n_lat = 200 # latent stochastic variables
     n_aux = 10  # auxiliary variables
@@ -499,64 +570,8 @@ def create_model3(X, n_dim, n_out, n_chan=1, model='gaussian'):
 
     return l_p_mu, l_p_logsigma, l_q_mu, l_q_logsigma, l_sample, l_p_z, l_d
 
-def create_gen_objective(X, network, deterministic=False, model='bernoulli'):
-    # load network input
-    x = X.flatten(2)
-
-    # duplicate entries to take into account multiple mc samples
-    n_sam = 1
-    n_out = x.shape[1]
-    x = x.dimshuffle(0,'x',1).repeat(n_sam, axis=1).reshape((-1, n_out))
-
-    # load network
-    l_px_mu, l_px_logsigma, l_pa_mu, l_pa_logsigma, \
-      l_qz_mu, l_qz_logsigma, l_qa_mu, l_qa_logsigma, \
-      l_qa, l_qz, l_d = network
-    
-    # load network output
-    pa_mu, pa_logsigma, qz_mu, qz_logsigma, qa_mu, qa_logsigma, a, z \
-      = lasagne.layers.get_output(
-          [ l_pa_mu, l_pa_logsigma, l_qz_mu, l_qz_logsigma, 
-            l_qa_mu, l_qa_logsigma, l_qa, l_qz ], 
-          deterministic=deterministic)
-
-    if model == 'bernoulli':
-      px_mu = lasagne.layers.get_output(l_px_mu, deterministic=deterministic)
-    elif model == 'gaussian':
-      px_mu, px_logsigma = lasagne.layers.get_output([l_px_mu, l_px_logsigma], 
-                                                     deterministic=deterministic)
-
-    # entropy term
-    log_qa_given_x  = log_normal2(a, qa_mu, qa_logsigma).sum(axis=1)
-    log_qz_given_ax = log_normal2(z, qz_mu, qz_logsigma).sum(axis=1)
-    log_qza_given_x = log_qz_given_ax + log_qa_given_x
-
-    # log-probability term
-    z_prior_sigma = T.cast(T.ones_like(qz_logsigma), dtype=theano.config.floatX)
-    z_prior_mu = T.cast(T.zeros_like(qz_mu), dtype=theano.config.floatX)
-    log_pz = log_normal(z, z_prior_mu,  z_prior_sigma).sum(axis=1)
-    log_pa_given_z = log_normal2(a, pa_mu, pa_logsigma).sum(axis=1)
-
-    if model == 'bernoulli':
-      log_px_given_z = log_bernoulli(x, px_mu).sum(axis=1)
-    elif model == 'gaussian':
-      log_px_given_z = log_normal2(x, px_mu, px_logsigma).sum(axis=1)
-
-    log_paxz = log_pa_given_z + log_px_given_z + log_pz
-
-    # discriminative component
-    # P = lasagne.layers.get_output(l_d)
-    # P_test = lasagne.layers.get_output(l_d, deterministic=True)
-    # disc_loss = lasagne.objectives.categorical_crossentropy(P, Y)
-
-    # compute the evidence lower bound
-    # elbo = T.mean(-disc_loss + log_paxz - log_qza_given_x)
-    elbo = T.mean(log_paxz - log_qza_given_x)
-    # elbo = T.mean(-disc_loss)
-
-    return -elbo
-
 def create_gen_objective2(X, network, deterministic=False, model='gaussian'):
+    """If the gen model is a VAE"""
     # load network output
     if model == 'bernoulli':
       q_mu, q_logsigma, sample, _ \
@@ -581,51 +596,3 @@ def create_gen_objective2(X, network, deterministic=False, model='gaussian'):
     gen_loss = (logpxz + kl_div)
 
     return -gen_loss
-
-
-def get_params(network):
-    l_px_mu = network[0]
-    l_pa_mu = network[2]
-    l_d = network[-1]
-    params  = lasagne.layers.get_all_params([l_px_mu, l_pa_mu, l_d], trainable=True)
-    # params  = lasagne.layers.get_all_params(network, trainable=True)
-    params1 = lasagne.layers.get_all_params(l_d, trainable=True)
-    
-    return params1
-
-class Deconv2DLayer(lasagne.layers.Layer):
-
-    def __init__(self, incoming, num_filters, filter_size, stride=1, pad=0,
-            nonlinearity=lasagne.nonlinearities.rectify, **kwargs):
-        super(Deconv2DLayer, self).__init__(incoming, **kwargs)
-        self.num_filters = num_filters
-        self.filter_size = lasagne.utils.as_tuple(filter_size, 2, int)
-        self.stride = lasagne.utils.as_tuple(stride, 2, int)
-        self.pad = lasagne.utils.as_tuple(pad, 2, int)
-        self.W = self.add_param(lasagne.init.Orthogonal(),
-                (self.input_shape[1], num_filters) + self.filter_size,
-                name='W')
-        self.b = self.add_param(lasagne.init.Constant(0),
-                (num_filters,),
-                name='b')
-        if nonlinearity is None:
-            nonlinearity = lasagne.nonlinearities.identity
-        self.nonlinearity = nonlinearity
-
-    def get_output_shape_for(self, input_shape):
-        shape = tuple(i*s - 2*p + f - 1
-                for i, s, p, f in zip(input_shape[2:],
-                                      self.stride,
-                                      self.pad,
-                                      self.filter_size))
-        return (input_shape[0], self.num_filters) + shape
-
-    def get_output_for(self, input, **kwargs):
-        op = T.nnet.abstract_conv.AbstractConv2d_gradInputs(
-            imshp=self.output_shape,
-            kshp=(self.input_shape[1], self.num_filters) + self.filter_size,
-            subsample=self.stride, border_mode=self.pad)
-        conved = op(self.W, input, self.output_shape[2:])
-        if self.b is not None:
-            conved += self.b.dimshuffle('x', 0, 'x', 'x')
-        return self.nonlinearity(conved)        
